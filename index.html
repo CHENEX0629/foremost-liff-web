@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FOREMOST 印刷確認</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 LINE LIFF SDK -->
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen font-sans">
+
+    <!-- 載入中畫面 -->
+    <div id="loading" class="flex flex-col items-center justify-center h-screen">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mb-4"></div>
+        <p class="text-gray-600 font-bold">驗證身分中...</p>
+    </div>
+
+    <!-- 首次註冊畫面 -->
+    <div id="register-view" class="hidden p-6 mt-10 max-w-md mx-auto bg-white rounded-xl shadow-md">
+        <h2 class="text-xl font-bold text-gray-800 mb-4">⛳️ 歡迎使用 FOREMOST 印刷系統</h2>
+        <p class="text-gray-600 mb-4 text-sm">系統偵測到您尚未建檔，請輸入您的經銷商名稱進行綁定。</p>
+        <input type="text" id="reg-name" placeholder="例: 大稻埕高爾夫" class="w-full border rounded p-3 mb-4">
+        <button onclick="registerUser()" class="w-full bg-green-600 text-white font-bold py-3 rounded-lg">送出綁定</button>
+    </div>
+
+    <!-- 工單確認畫面 -->
+    <div id="ticket-view" class="hidden pb-20">
+        <div class="bg-gray-800 text-white p-4 sticky top-0 z-10 shadow-md text-center">
+            <h1 class="text-lg font-bold">工單圖面確認</h1>
+            <p id="user-role-badge" class="text-xs text-gray-300"></p>
+        </div>
+
+        <div class="p-4 max-w-lg mx-auto">
+            <!-- 工單資訊卡 (規格書規定不顯示價格) -->
+            <div class="bg-white rounded-xl shadow p-4 mb-4">
+                <div class="flex justify-between border-b pb-2 mb-2">
+                    <span class="text-gray-500 text-sm">工單編號</span>
+                    <span id="tk-no" class="font-bold text-gray-800">載入中...</span>
+                </div>
+                <div class="flex justify-between border-b pb-2 mb-2">
+                    <span class="text-gray-500 text-sm">球款</span>
+                    <span id="tk-inv" class="font-bold text-gray-800">載入中...</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-500 text-sm">數量</span>
+                    <span id="tk-qty" class="font-bold text-gray-800 text-lg">載入中...</span>
+                </div>
+            </div>
+
+            <!-- 排版圖顯示區 -->
+            <h3 class="font-bold text-gray-700 mb-2">🖼️ 排版預覽圖</h3>
+            <div class="bg-white p-2 rounded-xl shadow mb-6">
+                <!-- 實務上會從 R2 抓圖片網址 -->
+                <img id="tk-img" src="" alt="Mockup" class="w-full h-auto rounded border border-gray-200">
+            </div>
+
+            <!-- 動態按鈕區 -->
+            <div id="action-buttons">
+                <!-- 經銷商用黃色按鈕 -->
+                <button id="btn-dist-approve" onclick="approveTicket()" class="hidden w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-4 rounded-xl shadow-lg text-lg mb-4 transition">
+                    🟡 經銷商：確認圖面無誤
+                </button>
+                
+                <!-- 品牌用藍色按鈕 -->
+                <button id="btn-brand-approve" onclick="approveTicket()" class="hidden w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg text-lg mb-4 transition">
+                    🔵 品牌業務：最終放行生產
+                </button>
+
+                <!-- 已完成提示 -->
+                <div id="status-message" class="hidden text-center text-green-600 font-bold p-4 bg-green-50 rounded-xl border border-green-200"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "https://foremost-cms.chenex0629.workers.dev";
+        const LIFF_ID = "你的_LINE_LIFF_ID"; // 去 LINE Developers 後台申請
+        
+        let currentUser = null;
+        let currentTicketId = null;
+
+        // 1. 初始化 LIFF
+        async function main() {
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                    return;
+                }
+
+                // 2. 獲取 Token 並向自家 API 驗證
+                const idToken = liff.getIDToken();
+                const res = await fetch(`${API_URL}/api/liff/auth`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id_token: idToken })
+                });
+
+                const data = await res.json();
+                document.getElementById('loading').classList.add('hidden');
+
+                if (res.status === 404) {
+                    // 找不到人，顯示註冊
+                    document.getElementById('register-view').classList.remove('hidden');
+                    window.tempLineUserId = data.line_user_id;
+                } else if (res.ok) {
+                    // 驗證成功，載入工單
+                    currentUser = data.user;
+                    document.getElementById('user-role-badge').innerText = `身分：${currentUser.name} (${currentUser.role})`;
+                    loadTicket(); 
+                }
+
+            } catch (err) {
+                alert("LIFF 初始化失敗");
+            }
+        }
+
+        // 3. 處理註冊
+        async function registerUser() {
+            const name = document.getElementById('reg-name').value;
+            if (!name) return alert("請輸入名稱");
+
+            const res = await fetch(`${API_URL}/api/liff/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ line_user_id: window.tempLineUserId, name: name })
+            });
+
+            if (res.ok) {
+                alert("註冊成功！");
+                window.location.reload();
+            }
+        }
+
+        // 4. 抓取工單並根據角色顯示按鈕 (核心邏輯)
+        async function loadTicket() {
+            // 從網址 ?ticket_id=123 抓取 ID
+            const urlParams = new URLSearchParams(window.location.search);
+            currentTicketId = urlParams.get('ticket_id');
+            
+            if (!currentTicketId) return alert("無效的工單連結");
+
+            document.getElementById('ticket-view').classList.remove('hidden');
+
+            // 實務上這裡要呼叫 GET /api/tickets/:id
+            // 這裡我們先寫死假資料測試介面
+            const mockTicket = {
+                status: 'pending_dist', // 待經銷商確認
+                ticket_no: 'TKT-20261111-1234',
+                inventory_name: 'PRO-TOUR X3 白',
+                dozen_qty: 50,
+                mockup_key: 'https://via.placeholder.com/600x400?text=Mockup+Image'
+            };
+
+            document.getElementById('tk-no').innerText = mockTicket.ticket_no;
+            document.getElementById('tk-inv').innerText = mockTicket.inventory_name;
+            document.getElementById('tk-qty').innerText = mockTicket.dozen_qty + ' 打';
+            document.getElementById('tk-img').src = mockTicket.mockup_key;
+
+            // 狀態機與權限判斷 [根據規格書 4.2]
+            const btnDist = document.getElementById('btn-dist-approve');
+            const btnBrand = document.getElementById('btn-brand-approve');
+            const msg = document.getElementById('status-message');
+
+            if (mockTicket.status === 'pending_dist' && currentUser.role === 'distributor') {
+                btnDist.classList.remove('hidden');
+            } 
+            else if (mockTicket.status === 'pending_brand' && currentUser.role === 'brand') {
+                btnBrand.classList.remove('hidden');
+            } 
+            else if (mockTicket.status === 'pending_print' || mockTicket.status === 'completed') {
+                msg.innerText = "✅ 此工單已完成簽核，等待生產中";
+                msg.classList.remove('hidden');
+            } else {
+                msg.innerText = "⏳ 等待另一方簽核中...";
+                msg.classList.remove('hidden');
+            }
+        }
+
+        // 5. 送出簽核
+        async function approveTicket() {
+            if(!confirm("確認要放行此工單嗎？")) return;
+
+            const res = await fetch(`${API_URL}/api/tickets/approve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    ticket_id: currentTicketId, 
+                    user_id: currentUser.id, 
+                    role: currentUser.role 
+                })
+            });
+
+            if (res.ok) {
+                alert("✅ 簽核成功！");
+                window.location.reload();
+            } else {
+                alert("❌ 簽核失敗，請確認權限或重整頁面");
+            }
+        }
+
+        // 啟動程式
+        main();
+    </script>
+</body>
+</html>
