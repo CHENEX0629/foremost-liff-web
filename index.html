@@ -190,7 +190,7 @@
             }
         }
 
-        // 5. 送出簽核
+        // 5. 送出簽核 (手機端)
         async function approveTicket() {
             if(!confirm("確認要放行此工單嗎？")) return;
 
@@ -205,7 +205,13 @@
             });
 
             if (res.ok) {
-                alert("✅ 簽核成功！");
+                // 🌟 讀取 JSON 並攔截庫存警報
+                const data = await res.json();
+                if (data.alert) {
+                    alert(`✅ 簽核成功！\n\n${data.alert}`);
+                } else {
+                    alert("✅ 簽核成功！");
+                }
                 window.location.reload();
             } else {
                 alert("❌ 簽核失敗，請確認權限或重整頁面");
