@@ -133,48 +133,57 @@
             }
         }
 
-        // 4. 抓取工單並根據角色顯示按鈕 (核心邏輯)
+        // 4. 抓取真實工單並根據角色顯示按鈕
         async function loadTicket() {
-            // 從網址 ?ticket_id=123 抓取 ID
+            // 從網址 ?ticket_id=1 抓取 ID
             const urlParams = new URLSearchParams(window.location.search);
             currentTicketId = urlParams.get('ticket_id');
             
-            if (!currentTicketId) return alert("無效的工單連結");
+            if (!currentTicketId) return alert("無效的工單連結，請從正確的 LINE 通知點擊進入");
 
             document.getElementById('ticket-view').classList.remove('hidden');
 
-            // 實務上這裡要呼叫 GET /api/tickets/:id
-            // 這裡我們先寫死假資料測試介面
-            const mockTicket = {
-                status: 'pending_dist', // 待經銷商確認
-                ticket_no: 'TKT-20261111-1234',
-                inventory_name: 'PRO-TOUR X3 白',
-                dozen_qty: 50,
-                mockup_key: 'https://via.placeholder.com/600x400?text=Mockup+Image'
-            };
+            try {
+                // 呼叫後端真實 API 抓取資料
+                const res = await fetch(`${API_URL}/api/ticket?id=${currentTicketId}`);
+                const ticketData = await res.json();
 
-            document.getElementById('tk-no').innerText = mockTicket.ticket_no;
-            document.getElementById('tk-inv').innerText = mockTicket.inventory_name;
-            document.getElementById('tk-qty').innerText = mockTicket.dozen_qty + ' 打';
-            document.getElementById('tk-img').src = mockTicket.mockup_key;
+                if (!res.ok) {
+                    return alert(ticketData.error || "無法載入工單");
+                }
 
-            // 狀態機與權限判斷 [根據規格書 4.2]
-            const btnDist = document.getElementById('btn-dist-approve');
-            const btnBrand = document.getElementById('btn-brand-approve');
-            const msg = document.getElementById('status-message');
+                // 將真實資料塞入畫面中 (遵守規格：不顯示價格與顏色)
+                document.getElementById('tk-no').innerText = ticketData.ticket_no;
+                document.getElementById('tk-inv').innerText = ticketData.inventory_name;
+                document.getElementById('tk-qty').innerText = ticketData.dozen_qty + ' 打';
+                document.getElementById('tk-img').src = ticketData.mockup_key;
 
-            if (mockTicket.status === 'pending_dist' && currentUser.role === 'distributor') {
-                btnDist.classList.remove('hidden');
-            } 
-            else if (mockTicket.status === 'pending_brand' && currentUser.role === 'brand') {
-                btnBrand.classList.remove('hidden');
-            } 
-            else if (mockTicket.status === 'pending_print' || mockTicket.status === 'completed') {
-                msg.innerText = "✅ 此工單已完成簽核，等待生產中";
-                msg.classList.remove('hidden');
-            } else {
-                msg.innerText = "⏳ 等待另一方簽核中...";
-                msg.classList.remove('hidden');
+                // 狀態機與權限判斷 [根據規格書 4.2]
+                const btnDist = document.getElementById('btn-dist-approve');
+                const btnBrand = document.getElementById('btn-brand-approve');
+                const msg = document.getElementById('status-message');
+
+                if (ticketData.status === 'pending_dist' && currentUser.role === 'distributor') {
+                    // 如果目前登入者剛好是這張單的經銷商
+                    if (ticketData.distributor_id === currentUser.id) {
+                        btnDist.classList.remove('hidden');
+                    } else {
+                        msg.innerText = "❌ 您無權限簽核其他經銷商的工單";
+                        msg.classList.remove('hidden');
+                    }
+                } 
+                else if (ticketData.status === 'pending_brand' && currentUser.role === 'brand') {
+                    btnBrand.classList.remove('hidden');
+                } 
+                else if (ticketData.status === 'pending_print' || ticketData.status === 'completed') {
+                    msg.innerText = "✅ 此工單已完成簽核，等待生產中";
+                    msg.classList.remove('hidden');
+                } else {
+                    msg.innerText = "⏳ 等待另一方簽核中...";
+                    msg.classList.remove('hidden');
+                }
+            } catch (err) {
+                alert("系統連線錯誤");
             }
         }
 
