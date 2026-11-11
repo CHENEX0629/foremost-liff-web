@@ -121,6 +121,7 @@
                     // 找不到人，顯示註冊
                     document.getElementById('register-view').classList.remove('hidden');
                     window.tempLineUserId = data.line_user_id;
+                    loadSalesRepsDropdown();
                 } else if (res.ok) {
                     // 驗證成功，載入工單
                     currentUser = data.user;
