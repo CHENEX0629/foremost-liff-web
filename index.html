@@ -109,6 +109,9 @@
                     currentUser = data.user;
                     document.getElementById('user-role-badge').innerText = `身分：${currentUser.name} (${currentUser.role})`;
                     loadTicket(); 
+                }else {
+                    // 🌟 新增這一段：把隱藏的錯誤抓出來顯示！
+                    alert(`系統攔截到錯誤 (代碼 ${res.status})：\n${data.error || "未知錯誤"}\n請截圖給開發人員`);
                 }
 
             } catch (err) {
